@@ -8,6 +8,21 @@ import warnings
 from sklearn.ensemble import RandomForestRegressor
 from sklearn import preprocessing
 from sklearn.preprocessing import LabelEncoder
+from sklearn import model_selection
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.ensemble import ExtraTreesClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.model_selection import KFold
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+#from xgboost import XGBClassifier
+from sklearn.learning_curve import learning_curve
+
+
+
 
 warnings.filterwarnings('ignore')
 
@@ -211,7 +226,7 @@ def factoring():
 
     # Name字段，首先先从名字中提取各种称呼：
     #combined_train_test['Title']=combined_train_test['Name'].map(lambda x:re.compile(",(. *?)\.").findall(x)[0])
-    combined_train_test['Title'] = list(map(lambda x: re.findall(r', (.*?). ', x), combined_train_test['Name']))
+    combined_train_test['Title'] = list(map(lambda x: re.findall(r', (.*?). ', x)[0], combined_train_test['Name']))
     # 将各式称呼进行统一化处理
     title_Dict = {}
     title_Dict.update(dict.fromkeys(['Capt', 'Col', 'Major', 'Dr', 'Rev'], 'Officer'))
@@ -220,8 +235,8 @@ def factoring():
     title_Dict.update(dict.fromkeys(['Mlle', 'Miss'], 'Miss'))
     title_Dict.update(dict.fromkeys(['Mr'], 'Mr'))
     title_Dict.update(dict.fromkeys(['Master', 'Jonkheer'], 'Master'))
-    combined_train_test['Title'] = list(map(title_Dict, combined_train_test['Title']))
-    print (combined_train_test['Title'])
+    combined_train_test['Title'] = combined_train_test['Title'].replace(title_Dict)
+    #combined_train_test['Title'] = combined_train_test['Title'].map(title_Dict)
     # 使用dummy对不同的称呼进行分列
     # 为了后面的特征分析，这里我们也将Title特征进行facrorizing
     combined_train_test['Title'] = pd.factorize(combined_train_test['Title'])[0]
@@ -246,6 +261,8 @@ def factoring():
     fare_bin_dummies_df = pd.get_dummies(combined_train_test['Fare_bin_id']).rename(columns=lambda x:'Fare_' + str(x))
     combined_train_test = pd.concat([combined_train_test, fare_bin_dummies_df], axis=1)
     combined_train_test.drop(['Fare_bin'], axis=1, inplace=True)
+    return combined_train_test
+
 
 def pclass_fare_category(df, pclass1_mean_fare, pclass2_mean_fare, pclass3_mean_fare):
     if df['Pclass']==1:
@@ -264,8 +281,367 @@ def pclass_fare_category(df, pclass1_mean_fare, pclass2_mean_fare, pclass3_mean_
         else:
             return'Pclass3_High'
 
+def family_size_category(family_size):
+    if family_size<=1:
+        return 'Single'
+    elif family_size<=4:
+        return 'Small_Family'
+    else:
+        return 'Large_Family'
 
 
+def Pclass_labeling(combined_train_test):
+    # 建立PClassFareCategory
+    Pclass1_mean_fare=combined_train_test['Fare'].groupby(by=combined_train_test['Pclass']).mean().get([1]).values[0]
+    Pclass2_mean_fare=combined_train_test['Fare'].groupby(by=combined_train_test['Pclass']).mean().get([2]).values[0]
+    Pclass3_mean_fare=combined_train_test['Fare'].groupby(by=combined_train_test['Pclass']).mean().get([3]).values[0]
+    #print (Pclass1_mean_fare, Pclass2_mean_fare, Pclass3_mean_fare)
+    # 建立Pclass_FareCategory
+    combined_train_test['Pclass_Fare_Category'] = combined_train_test.apply(pclass_fare_category, args=(Pclass1_mean_fare, Pclass2_mean_fare, Pclass3_mean_fare), axis=1)
+    pclass_level = LabelEncoder()
+    # 给每一项添加标签
+    pclass_level.fit(np.array(['Pclass1_Low', 'Pclass1_High', 'Pclass2_Low', 'Pclass2_High', 'Pclass3_Low', 'Pclass3_High']))
+    # 转换成数值
+    combined_train_test['Pclass_Fare_Category'] = pclass_level.transform(combined_train_test['Pclass_Fare_Category'])
+    # dummy转换
+    pclass_dummies_df = pd.get_dummies(combined_train_test['Pclass_Fare_Category']).rename(columns=lambda x: 'Pclass_' + str(x))
+    combined_train_test = pd.concat([combined_train_test, pclass_dummies_df], axis=1)
+    # 同时，我们将Pclass特征factorize化：
+    combined_train_test['Pclass'] = pd.factorize(combined_train_test['Pclass'])[0]
+    combined_train_test['Family_Size'] = combined_train_test['Parch'] + combined_train_test['SibSp'] + 1
+    combined_train_test['Family_Size_Category'] = combined_train_test['Family_Size'].map(family_size_category)
+    le_family = LabelEncoder()
+    le_family.fit(np.array(['Single', 'Small_Family', 'Large_Family']))
+    combined_train_test['Family_Size_Category'] = le_family.transform(combined_train_test['Family_Size_Category'])
+    family_size_dummies_df = pd.get_dummies(combined_train_test['Family_Size_Category'],
+                                            prefix=combined_train_test[['Family_Size_Category']].columns[0])
+    combined_train_test = pd.concat([combined_train_test, family_size_dummies_df], axis=1)
+    return combined_train_test
+
+
+def fill_missing_age(missing_age_train,missing_age_test):
+    missing_age_X_train=missing_age_train.drop(['Age'],axis=1)
+    missing_age_Y_train=missing_age_train['Age']
+    missing_age_X_test=missing_age_test.drop(['Age'],axis=1)
+
+    #gbm
+    gbm_reg=GradientBoostingRegressor(random_state=42)
+    gbm_reg_param_grid={'n_estimators':[2000],'max_depth':[4],'learning_rate':[0.01],'max_features':[3]}
+    gbm_reg_grid=model_selection.GridSearchCV(gbm_reg,gbm_reg_param_grid,cv=10,n_jobs=25,verbose=1,scoring='neg_mean_squared_error')
+    gbm_reg_grid.fit(missing_age_X_train,missing_age_Y_train)
+    print('AgefeatureBestGBParams:'+str(gbm_reg_grid.best_params_))
+    print('AgefeatureBestGBScore:'+str(gbm_reg_grid.best_score_))
+    print('GBTrainErrorfor"Age"FeatureRegressor:'+str(gbm_reg_grid.score(missing_age_X_train,missing_age_Y_train)))
+    missing_age_test.loc[:,'Age_GB']=gbm_reg_grid.predict(missing_age_X_test)
+    print(missing_age_test['Age_GB'][:4])
+    # model2rf
+    rf_reg = RandomForestRegressor()
+    rf_reg_param_grid = {'n_estimators': [200], 'max_depth': [5], 'random_state': [0]}
+    rf_reg_grid = model_selection.GridSearchCV(rf_reg, rf_reg_param_grid, cv=10, n_jobs=25, verbose=1,
+                                               scoring='neg_mean_squared_error')
+    rf_reg_grid.fit(missing_age_X_train, missing_age_Y_train)
+    print('AgefeatureBestRFParams:' + str(rf_reg_grid.best_params_))
+    print('AgefeatureBestRFScore:' + str(rf_reg_grid.best_score_))
+    print('RFTrainErrorfor"Age"FeatureRegressor' + str(rf_reg_grid.score(missing_age_X_train, missing_age_Y_train)))
+    missing_age_test.loc[:, 'Age_RF'] = rf_reg_grid.predict(missing_age_X_test)
+    print(missing_age_test['Age_RF'][:4])
+    # twomodelsmerge
+    print('shape1', missing_age_test['Age'].shape, missing_age_test[['Age_GB', 'Age_RF']].mode(axis=1).shape)
+    # missing_age_test['Age']=missing_age_test[['Age_GB','Age_LR']].mode(axis=1)
+    missing_age_test.loc[:, 'Age'] = np.mean([missing_age_test['Age_GB'], missing_age_test['Age_RF']])
+    print(missing_age_test['Age'][:4])
+    missing_age_test.drop(['Age_GB', 'Age_RF'], axis=1, inplace=True)
+    return missing_age_test
+
+
+def ticket_cabin_labeling(combined_train_test):
+    combined_train_test['Ticket_Letter'] = combined_train_test['Ticket'].str.split().str[0]
+    combined_train_test['Ticket_Letter'] = combined_train_test['Ticket_Letter']\
+                                            .apply(lambda x:'U0' if x.isnumeric() else x)
+    # 如果要提取数字信息，则也可以这样做，现在我们对数字票单纯地分为一类。
+    combined_train_test['Ticket_Number']=combined_train_test['Ticket'].apply(lambda x:\
+                                        pd.to_numeric(x, errors='coerce'))
+    # combined_train_test['Ticket_Number'].fillna(0,inplace=True)
+    # 将Ticket_Letterfactorize
+    combined_train_test['Ticket_Letter'] = pd.factorize(combined_train_test['Ticket_Letter'])[0]
+    # Cabin字段，因为Cabin项的缺失值确实太多了，我们很难对其进行分析，或者预测。所以这里我
+    #们可以直接将Cabin这一项特征去除。但通过上面的分析，可以知道，该特征信息的有无也与生存率
+    #有一定的关系，所以这里我们暂时保留该特征，并将其分为有和无两类。
+    combined_train_test.loc[combined_train_test.Cabin.isnull(), 'Cabin'] = 'U0'
+    combined_train_test['Cabin'] = combined_train_test['Cabin'].apply(lambda x:0 if x == 'U0' else 1)
+    return combined_train_test
+
+def cor_plot(combined_train_test):
+    # 特征间相关性分析
+    # 我们挑选一些主要的特征，生成特征之间的关联图，查看特征与特征之间的相关性：
+    Correlation = pd.DataFrame(combined_train_test[['Embarked', 'Sex', 'Title', 'Name_length', 'Family_Size', \
+                'Family_Size_Category','Fare', 'Fare_bin_id', 'Pclass','Pclass_Fare_Category', 'Age', 'Ticket_Letter', 'Cabin']])
+    colormap = plt.cm.viridis
+    plt.figure(figsize=(14, 12))
+    plt.title('PearsonCorrelationofFeatures', y=1.05, size=15)
+    sns.heatmap(Correlation.astype(float).corr(), linewidths=0.1, vmax=1.0,
+                square=True,
+                cmap=colormap,
+                linecolor='white', annot=True)
+    g = sns.pairplot(combined_train_test[[u'Survived', u'Pclass', u'Sex', u'Age', u'Fare', u'Embarked',
+                                          u'Family_Size', u'Title', u'Ticket_Letter']], hue='Survived',
+                     palette='seismic', size=1.2, diag_kind=
+                     'kde', diag_kws=dict(shade=True), plot_kws=dict(s=10))
+    g.set(xticklabels=[])
+    plt.show()
+
+
+def age_fare_regularing(combined_train_test):
+    scale_age_fare = preprocessing.StandardScaler().fit(combined_train_test[['Age', 'Fare', 'Name_length']])
+    combined_train_test[['Age', 'Fare', 'Name_length']]=\
+    scale_age_fare.transform(combined_train_test[['Age', 'Fare', 'Name_length']])
+    # 弃掉无用特征
+    # 对于上面的特征工程中，我们从一些原始的特征中提取出了很多要融合到模型中的特征，但是我们
+    #需要剔除那些原本的我们用不到的或者非数值特征：
+    # 首先对我们的数据先进行一下备份，以便后期的再次分析：
+    combined_data_backup = combined_train_test
+    combined_train_test.drop(['PassengerId', 'Embarked', 'Sex', 'Name', 'Title', 'Fare_bin_id', 'Pclass_Fare_Category',
+                              'Parch', 'SibSp', 'Family_Size_Category', 'Ticket'], axis=1, inplace=True)
+    return combined_train_test
+
+
+def train_test_apart(combined_train_test):
+    # 将训练数据和测试数据分开
+    train_data = combined_train_test[:891]
+    test_data = combined_train_test[891:]
+    titanic_train_data_X = train_data.drop(['Survived'], axis=1)
+    titanic_train_data_Y = train_data['Survived']
+    titanic_test_data_X = test_data.drop(['Survived'], axis=1)
+    #print (titanic_train_data_X.shape)
+    return titanic_train_data_X, titanic_train_data_Y, titanic_test_data_X
+
+
+def get_top_n_features(titanic_train_data_X,titanic_train_data_Y,top_n_features):
+    #randomforest
+    rf_est=RandomForestClassifier(random_state=0)
+    rf_param_grid={'n_estimators':[500],'min_samples_split':[2,3],'max_depth':[20]}
+    rf_grid=model_selection.GridSearchCV(rf_est,rf_param_grid,n_jobs=25,cv=10,verbose=1)
+    rf_grid.fit(titanic_train_data_X,titanic_train_data_Y)
+    print('TopNFeaturesBestRFParams:'+str(rf_grid.best_params_))
+    print('TopNFeaturesBestRFScore:'+str(rf_grid.best_score_))
+    print('TopNFeaturesRFTrainScore:'+str(rf_grid.score(titanic_train_data_X,titanic_train_data_Y)))
+    feature_imp_sorted_rf=pd.DataFrame({'feature':list(titanic_train_data_X),'importance':rf_grid.best_estimator_.feature_importances_}).sort_values('importance',ascending=False)
+    features_top_n_rf=feature_imp_sorted_rf.head(top_n_features)['feature']
+    print('Sample10FeaturesfromRFClassifier')
+    print(str(features_top_n_rf[:10]))
+    #AdaBoost
+    ada_est=AdaBoostClassifier(random_state=0)
+    ada_param_grid={'n_estimators':[500],'learning_rate':[0.01,0.1]}
+    ada_grid=model_selection.GridSearchCV(ada_est,ada_param_grid,n_jobs=25,cv=10,verbose=1)
+    ada_grid.fit(titanic_train_data_X,titanic_train_data_Y)
+    print('TopNFeaturesBestAdaParams:'+str(ada_grid.best_params_))
+    print('TopNFeaturesBestAdaScore:'+str(ada_grid.best_score_))
+    print('TopNFeaturesAdaTrainScore:'+str(ada_grid.score(titanic_train_data_X,titanic_train_data_Y)))
+    feature_imp_sorted_ada=pd.DataFrame({'feature':list(titanic_train_data_X),
+    'importance':
+    ada_grid.best_estimator_.feature_importances_}).sort_values('importance',ascending=False)
+    features_top_n_ada=feature_imp_sorted_ada.head(top_n_features)['feature']
+    print('Sample10FeaturefromAdaClassifier:')
+    print(str(features_top_n_ada[:10]))
+    #ExtraTree
+    et_est=ExtraTreesClassifier(random_state=0)
+    et_param_grid={'n_estimators':[500],'min_samples_split':[3,4],'max_depth':[20]}
+    et_grid=model_selection.GridSearchCV(et_est,et_param_grid,n_jobs=25,cv=10,verbose=1)
+    et_grid.fit(titanic_train_data_X,titanic_train_data_Y)
+    print('TopNFeaturesBestETParams:'+str(et_grid.best_params_))
+    print('TopNFeaturesBestETScore:'+str(et_grid.best_score_))
+    print('TopNFeaturesETTrainScore:'+str(et_grid.score(titanic_train_data_X,titanic_train_data_Y)))
+    feature_imp_sorted_et=pd.DataFrame({'feature':list(titanic_train_data_X),
+    'importance':et_grid.best_estimator_.feature_importances_}).sort_values('importance',
+    ascending=False)
+    features_top_n_et=feature_imp_sorted_et.head(top_n_features)['feature']
+    print('Sample10FeaturesfromETClassifier:')
+    print(str(features_top_n_et[:10]))
+    #GradientBoosting
+    gb_est=GradientBoostingClassifier(random_state=0)
+    gb_param_grid={'n_estimators':[500],'learning_rate':[0.01,0.1],'max_depth':[20]}
+    gb_grid=model_selection.GridSearchCV(gb_est,gb_param_grid,n_jobs=25,cv=10,verbose=1)
+    gb_grid.fit(titanic_train_data_X,titanic_train_data_Y)
+    print('TopNFeaturesBestGBParams:'+str(gb_grid.best_params_))
+    print('TopNFeaturesBestGBScore:'+str(gb_grid.best_score_))
+    print('TopNFeaturesGBTrainScore:'+str(gb_grid.score(titanic_train_data_X,titanic_train_data_Y)))
+    feature_imp_sorted_gb=pd.DataFrame({'feature':list(titanic_train_data_X),
+    'importance':gb_grid.best_estimator_.feature_importances_}).sort_values('importance',
+    ascending=False)
+    features_top_n_gb=feature_imp_sorted_gb.head(top_n_features)['feature']
+    print('Sample10FeaturefromGBClassifier:')
+    print(str(features_top_n_gb[:10]))
+    #DecisionTree
+    dt_est=DecisionTreeClassifier(random_state=0)
+    dt_param_grid={'min_samples_split':[2,4],'max_depth':[20]}
+    dt_grid=model_selection.GridSearchCV(dt_est,dt_param_grid,n_jobs=25,cv=10,verbose=1)
+    dt_grid.fit(titanic_train_data_X,titanic_train_data_Y)
+    print('TopNFeaturesBestDTParams:'+str(dt_grid.best_params_))
+    print('TopNFeaturesBestDTScore:'+str(dt_grid.best_score_))
+    print('TopNFeaturesDTTrainScore:'+str(dt_grid.score(titanic_train_data_X,titanic_train_data_Y)))
+    feature_imp_sorted_dt=pd.DataFrame({'feature':list(titanic_train_data_X),
+    'importance':dt_grid.best_estimator_.feature_importances_}).sort_values('importance',
+    ascending=False)
+    features_top_n_dt=feature_imp_sorted_dt.head(top_n_features)['feature']
+    print('Sample10FeaturesfromDTClassifier:')
+    print(str(features_top_n_dt[:10]))
+    #mergethethreemodels
+    features_top_n=pd.concat([features_top_n_rf,features_top_n_ada,features_top_n_et,features_top_n_gb,features_top_n_dt],
+    ignore_index=True).drop_duplicates()
+    features_importance=pd.concat([feature_imp_sorted_rf,feature_imp_sorted_ada,feature_imp_sorted_et,
+    feature_imp_sorted_gb,feature_imp_sorted_dt],ignore_index=True)
+    return features_top_n,features_importance
+
+def modeling(*args):
+    titanic_train_data_X, titanic_train_data_Y, titanic_test_data_X = args
+    # 依据我们筛选出的特征构建训练集和测试集
+    # 但如果在进行特征工程的过程中，产生了大量的特征，而特征与特征之间会存在一定的相关性。
+    # 太多的特征一方面会影响模型训练的速度，另一方面也可能会使得模型过拟合。
+    # 所以在特征太多的情况下，我们可以利用不同的模型对特征进行筛选，选取出我们想要的前n个特征。
+    feature_to_pick = 30
+    feature_top_n, feature_importance = get_top_n_features(titanic_train_data_X, titanic_train_data_Y, feature_to_pick)
+    titanic_train_data_X = pd.DataFrame(titanic_train_data_X[feature_top_n])
+    titanic_test_data_X = pd.DataFrame(titanic_test_data_X[feature_top_n])
+
+    # 用视图可视化不同算法筛选的特征排序：
+    rf_feature_imp = feature_importance[:10]
+    Ada_feature_imp = feature_importance[32:32 + 10].reset_index(drop=True)
+    # makeimportancesrelativetomaximportance
+    rf_feature_importance = 100.0 * (rf_feature_imp['importance'] / rf_feature_imp['importance'].max())
+    Ada_feature_importance = 100.0 * (Ada_feature_imp['importance']/Ada_feature_imp['importance'].max())
+    # Gettheindexesofallfeaturesovertheimportancethreshold
+    rf_important_idx = np.where(rf_feature_importance)[0]
+    Ada_important_idx = [i for i in range(10)]
+    #Ada_important_idx = np.where(Ada_feature_importance)[0]
+    pos = np.arange(rf_important_idx.shape[0]) + .5
+    plt.figure(1, figsize=(18, 8))
+    plt.subplot(121)
+    plt.barh(pos, rf_feature_importance[rf_important_idx][::-1])
+    plt.yticks(pos, rf_feature_imp['feature'][::-1])
+    plt.xlabel('RelativeImportance')
+    plt.title('RandomForestFeatureImportance')
+    plt.subplot(122)
+    plt.barh(pos, Ada_feature_importance[Ada_important_idx][::-1])
+    plt.yticks(pos, Ada_feature_imp['feature'][::-1])
+    plt.xlabel('RelativeImportance')
+    plt.title('AdaBoostFeatureImportance')
+    plt.show()
+
+
+def model_ensemble(*args):
+    titanic_train_data_X, titanic_test_data_X, titanic_train_data_Y = args
+    ##L1:这里我们建立输出fold预测方法
+    # Someusefulparameterswhichwillcomeinhandylateron
+    ntrain = titanic_train_data_X.shape[0]
+    ntest = titanic_test_data_X.shape[0]
+    SEED = 0  # forreproducibility
+    NFOLDS = 7  # setfoldsforout-of-foldprediction
+    kf = KFold(n_splits=NFOLDS, random_state=SEED, shuffle=False)
+    rf = RandomForestClassifier(n_estimators=500, warm_start=True, max_features='sqrt', max_depth=6,
+                                min_samples_split=3, min_samples_leaf=2, n_jobs=-1, verbose=0)
+    ada = AdaBoostClassifier(n_estimators=500, learning_rate=0.1)
+    et = ExtraTreesClassifier(n_estimators=500, n_jobs=-1, max_depth=8, min_samples_leaf=2, verbose=0)
+    gb = GradientBoostingClassifier(n_estimators=500, learning_rate=0.008, min_samples_split=3,
+                                    min_samples_leaf=2, max_depth=5, verbose=0)
+    dt = DecisionTreeClassifier(max_depth=8)
+    knn = KNeighborsClassifier(n_neighbors=2)
+    svm = SVC(kernel='linear', C=0.025)
+    # 将pandas转换为arrays：
+    # CreateNumpyarraysoftrain,testandtarget(Survived)dataframestofeedintoourmodels
+    x_train = titanic_train_data_X.values  # Createsanarrayofthetraindata
+    x_test = titanic_test_data_X.values  # Creatsanarrayofthetestdata
+    y_train = titanic_train_data_Y.values
+    ##CreateourOOFtrainandtestpredictions.Thesebaseresultswillbeusedasnewfeatures
+    rf_oof_train, rf_oof_test = get_out_fold(rf, x_train, y_train, x_test)  # RandomForest
+    ada_oof_train, ada_oof_test = get_out_fold(ada, x_train, y_train, x_test)  # AdaBoost
+    et_oof_train, et_oof_test = get_out_fold(et, x_train, y_train, x_test)  # ExtraTrees
+    gb_oof_train, gb_oof_test = get_out_fold(gb, x_train, y_train, x_test)  # GradientBoost
+    dt_oof_train, dt_oof_test = get_out_fold(dt, x_train, y_train, x_test)  # DecisionTree
+    knn_oof_train, knn_oof_test = get_out_fold(knn, x_train, y_train, x_test)  # KNeighbors
+    svm_oof_train, svm_oof_test = get_out_fold(svm, x_train, y_train, x_test)  # SupportVector
+    print("Training is complete")
+
+    # 利用XGBoost，使用第一层预测的结果作为特征对最终的结果进行预测。
+    x_train = np.concatenate((rf_oof_train, ada_oof_train, et_oof_train, gb_oof_train, dt_oof_train, knn_oof_train,
+                              svm_oof_train), axis=1)
+    x_test = np.concatenate((rf_oof_test, ada_oof_test, et_oof_test, gb_oof_test, dt_oof_test, knn_oof_test, \
+                             svm_oof_test),axis=1)
+    gbm = XGBClassifier(n_estimators=2000, max_depth=4, min_child_weight=2, gamma=0.9, subsample=0.8,
+                        colsample_bytree=0.8, objective='binary:logistic', nthread=-1, scale_pos_weight=1).fit(x_train,                                                                                                             y_train)
+    predictions = gbm.predict(x_test)
+    StackingSubmission = pd.DataFrame({'PassengerId': PassengerId, 'Survived': predictions})
+    StackingSubmission.to_csv('StackingSubmission.csv', index=False, sep=',')
+
+
+def get_out_fold(clf,x_train,y_train,x_test):
+    oof_train=np.zeros((ntrain,))
+    oof_test=np.zeros((ntest,))
+    oof_test_skf=np.empty((NFOLDS,ntest))
+    for i,(train_index,test_index) in enumerate(kf.split(x_train)):
+        x_tr=x_train[train_index]
+        y_tr=y_train[train_index]
+        x_te=x_train[test_index]
+        clf.fit(x_tr,y_tr)
+        oof_train[test_index]=clf.predict(x_te)
+        oof_test_skf[i,:]=clf.predict(x_test)
+    oof_test[:]=oof_test_skf.mean(axis=0)
+    return oof_train.reshape(-1,1),oof_test.reshape(-1,1)
+
+
+def plot_learning_curve(estimator,title,X,y,ylim=None,cv=None,n_jobs=1,train_sizes=np.linspace(.1,1.0,5),verbose=0):
+    plt.figure()
+    plt.title(title)
+    if ylim is not None:
+        plt.ylim(*ylim)
+    plt.xlabel("Trainingexamples")
+    plt.ylabel("Score")
+    train_sizes, train_scores, test_scores = learning_curve(
+        estimator, X, y, cv=cv, n_jobs=n_jobs, train_sizes=train_sizes)
+    train_scores_mean = np.mean(train_scores, axis=1)
+    train_scores_std = np.std(train_scores, axis=1)
+    test_scores_mean = np.mean(test_scores, axis=1)
+    test_scores_std = np.std(test_scores, axis=1)
+    plt.grid()
+    plt.fill_between(train_sizes, train_scores_mean - train_scores_std,
+                     train_scores_mean + train_scores_std, alpha=0.1,
+                     color="r")
+    plt.fill_between(train_sizes, test_scores_mean - test_scores_std,
+                     test_scores_mean + test_scores_std, alpha=0.1, color="g")
+    plt.plot(train_sizes, train_scores_mean, 'o-', color="r",
+             label="Trainingscore")
+    plt.plot(train_sizes, test_scores_mean, 'o-', color="g",
+             label="Cross-validationscore")
+    plt.legend(loc="best")
+    return plt
+
+
+def model_running(titanic_train_data_X, titanic_train_data_Y):
+    x_train = titanic_train_data_X.values  # Createsanarrayofthetraindata
+    y_train = titanic_train_data_Y.values
+    X = x_train
+    Y = y_train
+    # RandomForest
+    rf_parameters = {'n_jobs': -1, 'n_estimators': 500, 'warm_start': True, 'max_depth': 6, 'min_samples_leaf': 2,
+                     'max_features': 'sqrt', 'verbose': 0}
+    # AdaBoost
+    ada_parameters = {'n_estimators': 500, 'learning_rate': 0.1}
+    # ExtraTrees
+    et_parameters = {'n_jobs': -1, 'n_estimators': 500, 'max_depth': 8, 'min_samples_leaf': 2, 'verbose': 0}
+    # GradientBoosting
+    gb_parameters = {'n_estimators': 500, 'max_depth': 5, 'min_samples_leaf': 2, 'verbose': 0}
+    # DecisionTree
+    dt_parameters = {'max_depth': 8}
+    # KNeighbors
+    knn_parameters = {'n_neighbors': 2}
+    # SVM
+    svm_parameters = {'kernel': 'linear', 'C': 0.025}
+    # XGB
+    #gbm_parameters = {'n_estimators': 2000, 'max_depth': 4, 'min_child_weight': 2, 'gamma': 0.9, 'subsample': 0.8,
+    #                  'colsample_bytree': 0.8, 'objective': 'binary:logistic', 'nthread': -1, 'scale_pos_weight': 1}
+    title = "LearningCurves"
+    plot_learning_curve(RandomForestClassifier(**rf_parameters), title, X, Y, cv=None, n_jobs=4, train_sizes=[50, 100,
+                                    150, 200, 250, 350, 400, 450, 500])
+    plt.show()
 
 if __name__ == '__main__':
     train_data = pd.read_csv('train.csv')  # 训练数据集
@@ -300,24 +676,41 @@ if __name__ == '__main__':
     age_scaling(train_data)
     fare_binning(train_data)
     '''
-    factoring()
     '''
-    # 建立PClassFareCategory
-    Pclass1_mean_fare=combined_train_test['Fare'].groupby(by=combined_train_test['Pclass']).mean().get([1]).values[0]
-    Pclass2_mean_fare=combined_train_test['Fare'].groupby(by=combined_train_test['Pclass']).mean().get([2]).values[0]
-    Pclass3_mean_fare=combined_train_test['Fare'].groupby(by=combined_train_test['Pclass']).mean().get([3]).values[0]
-    print (Pclass1_mean_fare, Pclass2_mean_fare, Pclass3_mean_fare)
-    # 建立Pclass_FareCategory
-    combined_train_test['Pclass_Fare_Category'] = combined_train_test.apply(pclass_fare_category, args=(Pclass1_mean_fare, Pclass2_mean_fare, Pclass3_mean_fare), axis=1)
-    pclass_level = LabelEncoder()
-    # 给每一项添加标签
-    pclass_level.fit(np.array(['Pclass1_Low', 'Pclass1_High', 'Pclass2_Low', 'Pclass2_High', 'Pclass3_Low', 'Pclass3_High']))
-    # 转换成数值
-    combined_train_test['Pclass_Fare_Category'] = pclass_level.transform(combined_train_test['Pclass_Fare_Category'])
-    # dummy转换
-    pclass_dummies_df = pd.get_dummies(combined_train_test['Pclass_Fare_Category']).rename(columns=lambda x: 'Pclass_' + str(x))
-    combined_train_test = pd.concat([combined_train_test, pclass_dummies_df], axis=1)
+    combined_train_test = factoring()
+    combined_train_test = Pclass_labeling(combined_train_test)
+    # Age字段，因为Age项的缺失值较多，所以不能直接填充age的众数或者平均数。
+    # 常见的有两种对年龄的填充方式：一种是根据Title中的称呼，如Mr，Master、Miss等称呼不同类
+    # 别的人的平均年龄来填充；一种是综合几项如Sex、Title、Pclass等其他没有缺失值的项，使用机器学习算法来预测Age。
+    # 这里我们使用后者来处理。以Age为目标值，将Age完整的项作为训练集，将Age缺失的项作为测试集。
+    missing_age_df = pd.DataFrame(combined_train_test[['Age', 'Embarked', 'Sex', 'Title', 'Name_length', 'Family_Size',
+                                                       'Family_Size_Category', 'Fare', 'Fare_bin_id', 'Pclass']])
+    missing_age_train = missing_age_df[missing_age_df['Age'].notnull()]
+    missing_age_test = missing_age_df[missing_age_df['Age'].isnull()]
+    # print (missing_age_test.head())
+    combined_train_test.loc[(combined_train_test.Age.isnull()), 'Age'] = \
+                                                    fill_missing_age(missing_age_train,missing_age_test)
     '''
+
+    #combined_train_test.to_csv('combined_train_test.csv')
+
+    combined_train_test = pd.read_csv('combined_train_test.csv')
+    lst = combined_train_test.columns
+    lst = lst[1:]
+    combined_train_test = combined_train_test[lst]
+
+    combined_train_test = ticket_cabin_labeling(combined_train_test)
+    #cor_plot(combined_train_test)
+    combined_train_test = age_fare_regularing(combined_train_test)
+    #缺失值实在弄不掉只能dropna()
+    combined_train_test = combined_train_test.dropna()
+    titanic_train_data_X, titanic_train_data_Y, titanic_test_data_X = train_test_apart(combined_train_test)
+    fields = ['Age', 'Fare', 'Ticket_Number']
+    titanic_train_data_X[fields] = titanic_train_data_X[fields].astype(float)
+    titanic_test_data_X[fields] = titanic_test_data_X[fields].astype(float)
+    #modeling(titanic_train_data_X, titanic_train_data_Y, titanic_test_data_X)
+    #model_ensemble(titanic_train_data_X, titanic_test_data_X, titanic_train_data_Y)
+    model_running(titanic_train_data_X, titanic_train_data_Y)
 
 
 
