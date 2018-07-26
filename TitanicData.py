@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import warnings
 import re
 import numpy as np
 import pandas as pd
@@ -505,7 +506,8 @@ def modeling(*args):
 
     # 用视图可视化不同算法筛选的特征排序：
     rf_feature_imp = feature_importance[:10]
-    Ada_feature_imp = feature_importance[32:32 + 10].reset_index(drop=True)
+    #Ada_feature_imp = feature_importance[32:32 + 10].reset_index(drop=True)
+    Ada_feature_imp = feature_importance[68:68 + 10].reset_index(drop=True)
     # makeimportancesrelativetomaximportance
     rf_feature_importance = 100.0 * (rf_feature_imp['importance'] / rf_feature_imp['importance'].max())
     Ada_feature_importance = 100.0 * (Ada_feature_imp['importance']/Ada_feature_imp['importance'].max())
@@ -644,6 +646,7 @@ def model_running(titanic_train_data_X, titanic_train_data_Y):
     plt.show()
 
 if __name__ == '__main__':
+    warnings.filterwarnings("ignore")
     train_data = pd.read_csv('train.csv')  # 训练数据集
     test_data = pd.read_csv('test.csv')  # 验证数据集
     sns.set_style('whitegrid')
@@ -676,7 +679,7 @@ if __name__ == '__main__':
     age_scaling(train_data)
     fare_binning(train_data)
     '''
-    '''
+
     combined_train_test = factoring()
     combined_train_test = Pclass_labeling(combined_train_test)
     # Age字段，因为Age项的缺失值较多，所以不能直接填充age的众数或者平均数。
@@ -690,9 +693,9 @@ if __name__ == '__main__':
     # print (missing_age_test.head())
     combined_train_test.loc[(combined_train_test.Age.isnull()), 'Age'] = \
                                                     fill_missing_age(missing_age_train,missing_age_test)
-    '''
 
-    #combined_train_test.to_csv('combined_train_test.csv')
+
+    combined_train_test.to_csv('combined_train_test.csv')
 
     combined_train_test = pd.read_csv('combined_train_test.csv')
     lst = combined_train_test.columns
@@ -708,9 +711,9 @@ if __name__ == '__main__':
     fields = ['Age', 'Fare', 'Ticket_Number']
     titanic_train_data_X[fields] = titanic_train_data_X[fields].astype(float)
     titanic_test_data_X[fields] = titanic_test_data_X[fields].astype(float)
-    #modeling(titanic_train_data_X, titanic_train_data_Y, titanic_test_data_X)
+    modeling(titanic_train_data_X, titanic_train_data_Y, titanic_test_data_X)
     #model_ensemble(titanic_train_data_X, titanic_test_data_X, titanic_train_data_Y)
-    model_running(titanic_train_data_X, titanic_train_data_Y)
+    #model_running(titanic_train_data_X, titanic_train_data_Y)
 
 
 
