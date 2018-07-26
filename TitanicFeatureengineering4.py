@@ -4,11 +4,16 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
+
 warnings.filterwarnings('ignore')
 #matplotlib inline
+
 #用程序观察前几行的源数据：
-train_data = pd.read_csv('data/train.csv')  #训练数据集
-test_data = pd.read_csv('data/test.csv') # 验证数据集
+#train_data = pd.read_csv('data/train.csv')  #训练数据集
+train_data = pd.read_csv('train.csv')  #训练数据集
+#test_data = pd.read_csv('data/test.csv') # 验证数据集
+test_data = pd.read_csv('test.csv') # 验证数据集
+'''
 sns.set_style('whitegrid')
 train_data.head()
 #choose training data to predict age
@@ -165,6 +170,8 @@ plt.title('Embarked and Survived')
 sns.factorplot('Embarked', 'Survived', data=train_data, size=3, aspect=2)
 plt.title('Embarked and Survived rate')
 #plt.show()
+'''
+
 #变量转换,虚拟变量
 embark_dummies  = pd.get_dummies(train_data['Embarked'])
 train_data = train_data.join(embark_dummies)        #生成新的一列
@@ -178,11 +185,13 @@ train_data['CabinLetter'] = train_data['Cabin'].map( lambda x : re.compile("([a-
 # convert the distinct cabin letters with incremental integer values
 train_data['CabinLetter'] = pd.factorize(train_data['CabinLetter'])[0]
 train_data['CabinLetter'].head()
+
 #下面对 Age 进行 Scaling
 from sklearn import preprocessing
 assert np.size(train_data['Age']) == 891
 # StandardScaler will subtract the mean from each value then scale to the unit variance
 scaler = preprocessing.StandardScaler()
+train_data = train_data.dropna()
 train_data['Age_scaled'] = scaler.fit_transform(train_data['Age'].values.reshape(-1, 1))
 #reshape重新调整矩阵的行数，列数，维度。
 train_data['Age_scaled'].head()
@@ -193,8 +202,10 @@ train_data['Fare_bin'].head()
 fare_bin_dummies_df = pd.get_dummies(train_data['Fare_bin']).rename(columns=lambda x: 'Fare_'+ str(x))
 train_data = pd.concat([train_data, fare_bin_dummies_df], axis=1)
 #axis 1表示横轴，方向从左到右；0表示纵轴，方向从上到下。当axis=1时，数组的变化是横向的，而体现出来的是列的增加或者减少。
-train_df_org = pd.read_csv('data/train.csv')
-test_df_org = pd.read_csv('data/test.csv')
+#train_df_org = pd.read_csv('data/train.csv')
+train_df_org = pd.read_csv('train.csv')
+#test_df_org = pd.read_csv('data/test.csv')
+test_df_org = pd.read_csv('test.csv')
 test_df_org['Survived'] = 0
 combined_train_test = train_df_org.append(test_df_org)
 PassengerId = test_df_org['PassengerId']
@@ -243,8 +254,11 @@ combined_train_test['Fare_bin_id'] = pd.factorize(combined_train_test['Fare_bin'
 fare_bin_dummies_df = pd.get_dummies(combined_train_test['Fare_bin_id']).rename(columns=lambda x: 'Fare_' + str(x))
 combined_train_test = pd.concat([combined_train_test, fare_bin_dummies_df], axis=1)
 combined_train_test.drop(['Fare_bin'], axis=1, inplace=True)
+
+
 #对原数组直接修改为【Fare_bin】
 from sklearn.preprocessing import LabelEncoder
+
 # 建立 PClass Fare Category
 def pclass_fare_category(df, pclass1_mean_fare, pclass2_mean_fare, pclass3_mean_fare):
     if df['Pclass'] == 1:
@@ -265,8 +279,10 @@ def pclass_fare_category(df, pclass1_mean_fare, pclass2_mean_fare, pclass3_mean_
 Pclass1_mean_fare = combined_train_test['Fare'].groupby(by=combined_train_test['Pclass']).mean().get([1]).values[0]
 Pclass2_mean_fare = combined_train_test['Fare'].groupby(by=combined_train_test['Pclass']).mean().get([2]).values[0]
 Pclass3_mean_fare = combined_train_test['Fare'].groupby(by=combined_train_test['Pclass']).mean().get([3]).values[0]
+
 # 建立 Pclass_Fare Category
-combined_train_test['Pclass_Fare_Category'] = combined_train_test.apply(pclass_fare_category, args=( Pclass1_mean_fare, Pclass2_mean_fare, Pclass3_mean_fare), axis=1)
+combined_train_test['Pclass_Fare_Category'] = combined_train_test.apply(pclass_fare_category, args=(Pclass1_mean_fare, Pclass2_mean_fare, Pclass3_mean_fare), axis=1)
+
 pclass_level = LabelEncoder()
 #多个实参，放到一个元组里面,以*开头，可以传多个参数；**是形参中按照关键字传值把多余的传值以字典的方式呈现.*args：（表示的就是将实参中按照位置传值，多出来的值都给args，且以元祖的方式呈现）
 # 给每一项添加标签
@@ -294,6 +310,8 @@ le_family.fit(np.array(['Single', 'Small_Family', 'Large_Family']))
 combined_train_test['Family_Size_Category'] = le_family.transform(combined_train_test['Family_Size_Category'])
 family_size_dummies_df = pd.get_dummies(combined_train_test['Family_Size_Category'],prefix=combined_train_test[['Family_Size_Category']].columns[0])
 combined_train_test = pd.concat([combined_train_test, family_size_dummies_df], axis=1)
+
+
 # 这里我们使用后者来处理。以 Age 为目标值，将 Age 完整的项作为训练集，将 Age 缺失的项作为测试集。
 missing_age_df = pd.DataFrame(combined_train_test[['Age', 'Embarked', 'Sex', 'Title', 'Name_length', 'Family_Size','Family_Size_Category', 'Fare', 'Fare_bin_id', 'Pclass']])
 missing_age_train = missing_age_df[missing_age_df['Age'].notnull()]
@@ -307,7 +325,7 @@ def fill_missing_age(missing_age_train, missing_age_test):
     missing_age_X_train = missing_age_train.drop(['Age'], axis=1)
     missing_age_Y_train = missing_age_train['Age']
     missing_age_X_test = missing_age_test.drop(['Age'], axis=1)
- # model 1  gbm
+    # model 1  gbm
     gbm_reg = GradientBoostingRegressor(random_state=42)
     gbm_reg_param_grid = {'n_estimators': [2000], 'max_depth': [4], 'learning_rate': [0.01], 'max_features': [3]}
     gbm_reg_grid = model_selection.GridSearchCV(gbm_reg, gbm_reg_param_grid, cv=10, n_jobs=25, verbose=1, scoring='neg_mean_squared_error')
@@ -317,7 +335,7 @@ def fill_missing_age(missing_age_train, missing_age_test):
     print('GB Train Error for "Age" Feature Regressor:' + str(gbm_reg_grid.score(missing_age_X_train, missing_age_Y_train)))
     missing_age_test.loc[:, 'Age_GB'] = gbm_reg_grid.predict(missing_age_X_test)
     print(missing_age_test['Age_GB'][:4])
-# model 2 rf
+    # model 2 rf
     rf_reg = RandomForestRegressor()
     rf_reg_param_grid = {'n_estimators': [200], 'max_depth': [5], 'random_state': [0]}
     rf_reg_grid = model_selection.GridSearchCV(rf_reg, rf_reg_param_grid, cv=10, n_jobs=25, verbose=1, scoring='neg_mean_squared_error')
@@ -327,15 +345,18 @@ def fill_missing_age(missing_age_train, missing_age_test):
     print('RF Train Error for "Age" Feature Regressor' + str(rf_reg_grid.score(missing_age_X_train, missing_age_Y_train)))
     missing_age_test.loc[:, 'Age_RF'] = rf_reg_grid.predict(missing_age_X_test)
     print(missing_age_test['Age_RF'][:4])
-# two models merge
+    # two models merge
     print('shape1', missing_age_test['Age'].shape, missing_age_test[['Age_GB', 'Age_RF']].mode(axis=1).shape)
-# missing_age_test['Age'] = missing_age_test[['Age_GB', 'Age_LR']].mode(axis=1)
+    # missing_age_test['Age'] = missing_age_test[['Age_GB', 'Age_LR']].mode(axis=1)
     missing_age_test.loc[:, 'Age'] = np.mean([missing_age_test['Age_GB'], missing_age_test['Age_RF']])
     print(missing_age_test['Age'][:4])
     missing_age_test.drop(['Age_GB', 'Age_RF'], axis=1, inplace=True)
     return missing_age_test
 #利用融合模型预测的结果填充 Age 的缺失值：
-if __name__=='__main__':combined_train_test.loc[(combined_train_test.Age.isnull()), 'Age'] = fill_missing_age(missing_age_train, missing_age_test)
+if __name__=='__main__':
+    combined_train_test.loc[(combined_train_test.Age.isnull()), 'Age'] = fill_missing_age(missing_age_train, missing_age_test)
+
+
 #Ticket 字段
 combined_train_test['Ticket_Letter'] = combined_train_test['Ticket'].str.split().str[0]
 combined_train_test['Ticket_Letter'] = combined_train_test['Ticket_Letter'].apply(lambda x: 'U0' if x.isnumeric() else x)
@@ -356,10 +377,14 @@ sns.heatmap(Correlation.astype(float).corr(),linewidths=0.1,vmax=1.0, square=Tru
 combined_train_test.head()
 #特征之间的数据分布图
 
+
 #输入模型前的一些处理
 #一些数据的正则化：这里我们将 Age 和 fare 进行正则化
 from sklearn import preprocessing
+#把空值删掉
+combined_train_test = combined_train_test.dropna()
 scale_age_fare = preprocessing.StandardScaler().fit(combined_train_test[['Age','Fare','Name_length']])
+
 combined_train_test[['Age','Fare','Name_length']] = scale_age_fare.transform(combined_train_test[['Age','Fare','Name_length']])
 
 combined_data_backup = combined_train_test
@@ -373,6 +398,8 @@ titanic_train_data_X = train_data.drop(['Survived'], axis=1)
 titanic_train_data_Y = train_data['Survived']
 titanic_test_data_X = test_data.drop(['Survived'], axis=1)
 
+
+'''
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.ensemble import AdaBoostClassifier
 from sklearn.ensemble import ExtraTreesClassifier
@@ -464,4 +491,5 @@ def get_top_n_features(titanic_train_data_X, titanic_train_data_Y, top_n_feature
                                      feature_imp_sorted_gb, feature_imp_sorted_dt], ignore_index=True)
 
     return features_top_n, features_importance
+'''
 
