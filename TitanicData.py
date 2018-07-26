@@ -18,29 +18,34 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.model_selection import KFold
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
-#from xgboost import XGBClassifier
+from xgboost import XGBClassifier
 from sklearn.learning_curve import learning_curve
-
-
 
 
 warnings.filterwarnings('ignore')
 
+
 def titanic_plot_pie(df):
+    #两个百分号应该是输出%自身，和C类似
     df['Survived'].value_counts().plot.pie(autopct='%1.2f%%')
     plt.show()
+
 
 def missing_value_process(df):
     df.Embarked[train_data.Embarked.isnull()] = df.Embarked.dropna().mode().values
     df['Cabin'] = df.Cabin.fillna('U0')  # train_data.Cabin[train_data.Cabin.isnull()]='U0'
     return df
 
+
 def missing_value_rf(df):
     # choosetrainingdatatopredictage
     age_df = df[['Age', 'Survived', 'Fare', 'Parch', 'SibSp', 'Pclass']]
     age_df_notnull = age_df.loc[(df['Age'].notnull())]
     age_df_isnull = age_df.loc[(df['Age'].isnull())]
+    #df.values用列表输出dataframe
+    #选取第一列外所有列
     X = age_df_notnull.values[:, 1:]
+    #选取第一列数据
     Y = age_df_notnull.values[:, 0]
     # useRandomForestRegressiontotraindata
     RFR = RandomForestRegressor(n_estimators=1000, n_jobs=-1)
@@ -79,7 +84,7 @@ def age_survival_relation(df):
     sns.violinplot("Pclass", "Age", hue="Survived", data=df, split=True, ax=ax[0])
     ax[0].set_title('PclassandAgevsSurvived')
     ax[0].set_yticks(range(0, 110, 10))
-    sns.violinplot("Sex", "Age", hue="Survived", data=train_data, split=True, ax=ax[1])
+    sns.violinplot("Sex", "Age", hue="Survived", data=df, split=True, ax=ax[1])
     ax[1].set_title('SexandAgevsSurvived')
     ax[1].set_yticks(range(0, 110, 10))
     plt.show()
@@ -140,7 +145,7 @@ def fare_survival(df):
     plt.show()
 
 def cabin_survival(df):
-    df.loc[train_data.Cabin.isnull(), 'Cabin'] = 'U0'
+    df.loc[df.Cabin.isnull(), 'Cabin'] = 'U0'
     df['Has_Cabin'] = df['Cabin'].apply(lambda x:0 if x == 'U0' else 1)
     df[['Has_Cabin', 'Survived']].groupby(['Has_Cabin']).mean().plot.bar()
     plt.show()
@@ -154,7 +159,9 @@ def fare_distribution(df):
     plt.show()
 
 def cabin_class_survival(df):
-    df['CabinLetter'] = df['Cabin'].map(lambda x:re.compile("([a-zA-Z]+)").search(x).group())
+    df['Cabin'][df.Cabin.isnull()] = 'U0'
+    df['CabinLetter'] = df['Cabin'].map(lambda x:re.compile('([a-zA-Z]+)').search(x).group())
+    #df['CabinLetter'] = list(map(lambda x: re.findall(r'([A-Z])', x)[0], df['Cabin']))
     df['CabinLetter'] = pd.factorize(df['CabinLetter'])[0]
     df[['CabinLetter', 'Survived']].groupby(['CabinLetter']).mean().plot.bar()
     plt.show()
@@ -184,7 +191,9 @@ def cabin_var_factorizing(df):
 
 def age_scaling(df):
     assert np.size(df['Age']) == 891
+    df = missing_value_rf(df)
     # StandardScalerwillsubtractthemeanfromeachvaluethenscaletotheunitvariance
+    # 归一化处理
     scaler = preprocessing.StandardScaler()
     df['Age_scaled'] = scaler.fit_transform(df['Age'].values.reshape(-1, 1))
     print (df['Age_scaled'].head())
@@ -197,8 +206,10 @@ def fare_binning(df):
     # factorize
     df['Fare_bin_id'] = pd.factorize(df['Fare_bin'])[0]
     # dummies
+    #print (pd.get_dummies(df['Fare_bin']))
     fare_bin_dummies_df = pd.get_dummies(df['Fare_bin']).rename(columns=lambda x:'Fare_' + str(x))
     train_data = pd.concat([df, fare_bin_dummies_df], axis=1)
+    #print (train_data)
 
 def factoring():
     #在进行特征工程的时候，不仅需要对训练数据进行处理，还需要同时将测试数据同训练数据一起处理，使得二者具有相同的数据类型和数据分布。
@@ -210,6 +221,7 @@ def factoring():
 
     # 对数据进行特征工程，也就是从各项参数中提取出对输出结果有或大或小的影响的特征，将这些特征作为训练模型的依据。一般来说，我们会先从含有缺失值的特征开始。
     # 因为“Embarked”字段的缺失值不多，所以这里我们以众数来填充：
+    #print (combined_train_test['Embarked'].mode().iloc[0])
     combined_train_test['Embarked'].fillna(combined_train_test['Embarked'].mode().iloc[0], inplace=True)
     # 为了后面的特征分析，这里我们将Embarked特征进行facrorizing
     combined_train_test['Embarked'] = pd.factorize(combined_train_test['Embarked'])[0]
@@ -217,6 +229,7 @@ def factoring():
     emb_dummies_df = pd.get_dummies(combined_train_test['Embarked'],\
                                     prefix=combined_train_test[['Embarked']].columns[0])
     combined_train_test = pd.concat([combined_train_test, emb_dummies_df], axis=1)
+    #print (combined_train_test)
 
     # 对Sex也进行one-hot编码，也就是dummy处理：
     # 为了后面的特征分析，这里我们也将Sex特征进行facrorizing
@@ -250,8 +263,7 @@ def factoring():
     combined_train_test['Fare']=combined_train_test[['Fare']].fillna(combined_train_test.groupby('Pclass').transform(np.mean))
     # 通过对Ticket数据的分析，我们可以看到部分票号数据有重复，同时结合亲属人数及名字的数据，和票价船舱等级对比，
     # 我们可以知道购买的票中有家庭票和团体票，所以我们需要将团体票的票价分配到每个人的头上。
-    combined_train_test['Group_Ticket']=\
-    combined_train_test['Fare'].groupby(by=combined_train_test['Ticket']).transform('count')
+    combined_train_test['Group_Ticket']=combined_train_test['Fare'].groupby(by=combined_train_test['Ticket']).transform('count')
     combined_train_test['Fare'] = combined_train_test['Fare'] / combined_train_test['Group_Ticket']
     combined_train_test.drop(['Group_Ticket'], axis=1, inplace=True)
     # 使用binning给票价分等级
@@ -298,7 +310,9 @@ def Pclass_labeling(combined_train_test):
     #print (Pclass1_mean_fare, Pclass2_mean_fare, Pclass3_mean_fare)
     # 建立Pclass_FareCategory
     combined_train_test['Pclass_Fare_Category'] = combined_train_test.apply(pclass_fare_category, args=(Pclass1_mean_fare, Pclass2_mean_fare, Pclass3_mean_fare), axis=1)
+    #print (combined_train_test['Pclass_Fare_Category'])
     pclass_level = LabelEncoder()
+    #print (pclass_level)
     # 给每一项添加标签
     pclass_level.fit(np.array(['Pclass1_Low', 'Pclass1_High', 'Pclass2_Low', 'Pclass2_High', 'Pclass3_Low', 'Pclass3_High']))
     # 转换成数值
@@ -345,7 +359,7 @@ def fill_missing_age(missing_age_train,missing_age_test):
     print('RFTrainErrorfor"Age"FeatureRegressor' + str(rf_reg_grid.score(missing_age_X_train, missing_age_Y_train)))
     missing_age_test.loc[:, 'Age_RF'] = rf_reg_grid.predict(missing_age_X_test)
     print(missing_age_test['Age_RF'][:4])
-    # twomodelsmerge
+    # two model smerge
     print('shape1', missing_age_test['Age'].shape, missing_age_test[['Age_GB', 'Age_RF']].mode(axis=1).shape)
     # missing_age_test['Age']=missing_age_test[['Age_GB','Age_LR']].mode(axis=1)
     missing_age_test.loc[:, 'Age'] = np.mean([missing_age_test['Age_GB'], missing_age_test['Age_RF']])
@@ -361,7 +375,7 @@ def ticket_cabin_labeling(combined_train_test):
     # 如果要提取数字信息，则也可以这样做，现在我们对数字票单纯地分为一类。
     combined_train_test['Ticket_Number']=combined_train_test['Ticket'].apply(lambda x:\
                                         pd.to_numeric(x, errors='coerce'))
-    # combined_train_test['Ticket_Number'].fillna(0,inplace=True)
+    #combined_train_test['Ticket_Number'].fillna(0,inplace=True)
     # 将Ticket_Letterfactorize
     combined_train_test['Ticket_Letter'] = pd.factorize(combined_train_test['Ticket_Letter'])[0]
     # Cabin字段，因为Cabin项的缺失值确实太多了，我们很难对其进行分析，或者预测。所以这里我
@@ -392,17 +406,21 @@ def cor_plot(combined_train_test):
 
 
 def age_fare_regularing(combined_train_test):
+    # 一些数据的正则化：这里我们将Age和fare进行正则化
     scale_age_fare = preprocessing.StandardScaler().fit(combined_train_test[['Age', 'Fare', 'Name_length']])
     combined_train_test[['Age', 'Fare', 'Name_length']]=\
     scale_age_fare.transform(combined_train_test[['Age', 'Fare', 'Name_length']])
+    #print (scale_age_fare)
     # 弃掉无用特征
     # 对于上面的特征工程中，我们从一些原始的特征中提取出了很多要融合到模型中的特征，但是我们
     #需要剔除那些原本的我们用不到的或者非数值特征：
     # 首先对我们的数据先进行一下备份，以便后期的再次分析：
     combined_data_backup = combined_train_test
+    combined_train_test_temp=combined_train_test.drop(['Embarked', 'Sex', 'Name', 'Title', 'Fare_bin_id', 'Pclass_Fare_Category',
+                              'Parch', 'SibSp', 'Family_Size_Category', 'Ticket'], axis=1)
     combined_train_test.drop(['PassengerId', 'Embarked', 'Sex', 'Name', 'Title', 'Fare_bin_id', 'Pclass_Fare_Category',
                               'Parch', 'SibSp', 'Family_Size_Category', 'Ticket'], axis=1, inplace=True)
-    return combined_train_test
+    return combined_train_test, combined_train_test_temp
 
 
 def train_test_apart(combined_train_test):
@@ -429,6 +447,7 @@ def get_top_n_features(titanic_train_data_X,titanic_train_data_Y,top_n_features)
     features_top_n_rf=feature_imp_sorted_rf.head(top_n_features)['feature']
     print('Sample10FeaturesfromRFClassifier')
     print(str(features_top_n_rf[:10]))
+
     #AdaBoost
     ada_est=AdaBoostClassifier(random_state=0)
     ada_param_grid={'n_estimators':[500],'learning_rate':[0.01,0.1]}
@@ -443,6 +462,7 @@ def get_top_n_features(titanic_train_data_X,titanic_train_data_Y,top_n_features)
     features_top_n_ada=feature_imp_sorted_ada.head(top_n_features)['feature']
     print('Sample10FeaturefromAdaClassifier:')
     print(str(features_top_n_ada[:10]))
+
     #ExtraTree
     et_est=ExtraTreesClassifier(random_state=0)
     et_param_grid={'n_estimators':[500],'min_samples_split':[3,4],'max_depth':[20]}
@@ -457,6 +477,7 @@ def get_top_n_features(titanic_train_data_X,titanic_train_data_Y,top_n_features)
     features_top_n_et=feature_imp_sorted_et.head(top_n_features)['feature']
     print('Sample10FeaturesfromETClassifier:')
     print(str(features_top_n_et[:10]))
+
     #GradientBoosting
     gb_est=GradientBoostingClassifier(random_state=0)
     gb_param_grid={'n_estimators':[500],'learning_rate':[0.01,0.1],'max_depth':[20]}
@@ -471,6 +492,7 @@ def get_top_n_features(titanic_train_data_X,titanic_train_data_Y,top_n_features)
     features_top_n_gb=feature_imp_sorted_gb.head(top_n_features)['feature']
     print('Sample10FeaturefromGBClassifier:')
     print(str(features_top_n_gb[:10]))
+
     #DecisionTree
     dt_est=DecisionTreeClassifier(random_state=0)
     dt_param_grid={'min_samples_split':[2,4],'max_depth':[20]}
@@ -485,12 +507,14 @@ def get_top_n_features(titanic_train_data_X,titanic_train_data_Y,top_n_features)
     features_top_n_dt=feature_imp_sorted_dt.head(top_n_features)['feature']
     print('Sample10FeaturesfromDTClassifier:')
     print(str(features_top_n_dt[:10]))
+
     #mergethethreemodels
     features_top_n=pd.concat([features_top_n_rf,features_top_n_ada,features_top_n_et,features_top_n_gb,features_top_n_dt],
     ignore_index=True).drop_duplicates()
     features_importance=pd.concat([feature_imp_sorted_rf,feature_imp_sorted_ada,feature_imp_sorted_et,
     feature_imp_sorted_gb,feature_imp_sorted_dt],ignore_index=True)
-    return features_top_n,features_importance
+    return features_top_n, features_importance
+    #return features_top_n,features_importance,feature_imp_sorted_rf,feature_imp_sorted_ada
 
 def modeling(*args):
     titanic_train_data_X, titanic_train_data_Y, titanic_test_data_X = args
@@ -499,14 +523,22 @@ def modeling(*args):
     # 太多的特征一方面会影响模型训练的速度，另一方面也可能会使得模型过拟合。
     # 所以在特征太多的情况下，我们可以利用不同的模型对特征进行筛选，选取出我们想要的前n个特征。
     feature_to_pick = 30
+    #feature_top_n, feature_importance, feature_imp_sorted_rf, feature_imp_sorted_ada = get_top_n_features(titanic_train_data_X, titanic_train_data_Y, feature_to_pick)
     feature_top_n, feature_importance = get_top_n_features(titanic_train_data_X, titanic_train_data_Y, feature_to_pick)
+    #feature_top_n, feature_importance = get_top_n_features(titanic_train_data_X, titanic_train_data_Y, feature_to_pick)
     titanic_train_data_X = pd.DataFrame(titanic_train_data_X[feature_top_n])
     titanic_test_data_X = pd.DataFrame(titanic_test_data_X[feature_top_n])
+    #print ('*****************')
+    #print (feature_importance)
+    #print ('*****************')
 
     # 用视图可视化不同算法筛选的特征排序：
     rf_feature_imp = feature_importance[:10]
+    #rf_feature_imp = feature_imp_sorted_rf[:10]
     #Ada_feature_imp = feature_importance[32:32 + 10].reset_index(drop=True)
+    #为什么修改为68
     Ada_feature_imp = feature_importance[68:68 + 10].reset_index(drop=True)
+    #Ada_feature_imp = feature_imp_sorted_ada[:10]
     # makeimportancesrelativetomaximportance
     rf_feature_importance = 100.0 * (rf_feature_imp['importance'] / rf_feature_imp['importance'].max())
     Ada_feature_importance = 100.0 * (Ada_feature_imp['importance']/Ada_feature_imp['importance'].max())
@@ -528,16 +560,40 @@ def modeling(*args):
     plt.title('AdaBoostFeatureImportance')
     plt.show()
 
-
+'''
+模型融合（ModelEnsemble）
+常见的模型融合方法有：Bagging、Boosting、Stacking、Blending。
+(6-1):Bagging
+Bagging将多个模型，也就是多个基学习器的预测结果进行简单的加权平均或者投票。它的好处
+是可以并行地训练基学习器。RandomForest就用到了Bagging的思想。
+(6-2):Boosting
+Boosting的思想，每个基学习器是在上一个基学习器学习的基础上，对上一个基学习器的错误进行
+弥补。我们将会用到的AdaBoost，GradientBoost就用到了这种思想。
+(6-3):Stacking
+Stacking是用新的学习器去学习如何组合上一层的基学习器。如果把Bagging看作是多个基分类器
+的线性组合，那么Stacking就是多个基分类器的非线性组合。Stacking可以将学习器一层一层地堆砌
+起来，形成一个网状的结构。
+相比来说Stacking的融合框架相对前面的二者来说在精度上确实有一定的提升，所以在下面的模
+型融合上，我们也使用Stacking方法。
+(6-4):Blending
+Blending和Stacking很相似，但同时它可以防止信息泄露的问题。
+Stacking框架融合:
+这里我们使用了两层的模型融合：
+Level1使用了：RandomForest、AdaBoost、ExtraTrees、GBDT、DecisionTree、KNN、SVM，一
+共7个模型
+Level2使用了XGBoost使用第一层预测的结果作为特征对最终的结果进行预测。
+Level1：
+Stacking框架是堆叠使用基础分类器的预测作为对二级模型的训练的输入。然而，我们不能简单
+地在全部训练数据上训练基本模型，产生预测，输出用于第二层的训练。如果我们在TrainData上训
+练，然后在TrainData上预测，就会造成标签。为了避免标签，我们需要对每个基学习器使用K-fold，
+将K个模型对ValidSet的预测结果拼起来，作为下一层学习器的输入。
+'''
 def model_ensemble(*args):
+    global combined_train_test_temp
     titanic_train_data_X, titanic_test_data_X, titanic_train_data_Y = args
-    ##L1:这里我们建立输出fold预测方法
-    # Someusefulparameterswhichwillcomeinhandylateron
-    ntrain = titanic_train_data_X.shape[0]
-    ntest = titanic_test_data_X.shape[0]
-    SEED = 0  # forreproducibility
-    NFOLDS = 7  # setfoldsforout-of-foldprediction
-    kf = KFold(n_splits=NFOLDS, random_state=SEED, shuffle=False)
+    # 构建不同的基学习器，这里我们使用了RandomForest、AdaBoost、ExtraTrees、GBDT、DecisionTree、
+    #KNN、SVM七个基学习器：（这里的模型可以使用如上面的GridSearch方法对模型的超参数进行搜
+    #索选择）
     rf = RandomForestClassifier(n_estimators=500, warm_start=True, max_features='sqrt', max_depth=6,
                                 min_samples_split=3, min_samples_leaf=2, n_jobs=-1, verbose=0)
     ada = AdaBoostClassifier(n_estimators=500, learning_rate=0.1)
@@ -546,7 +602,9 @@ def model_ensemble(*args):
                                     min_samples_leaf=2, max_depth=5, verbose=0)
     dt = DecisionTreeClassifier(max_depth=8)
     knn = KNeighborsClassifier(n_neighbors=2)
-    svm = SVC(kernel='linear', C=0.025)
+    svm = SVC(kernel='linear', C=0.025, max_iter=10000)
+    #svm = SVC(kernel='linear', C=0.025)
+
     # 将pandas转换为arrays：
     # CreateNumpyarraysoftrain,testandtarget(Survived)dataframestofeedintoourmodels
     x_train = titanic_train_data_X.values  # Createsanarrayofthetraindata
@@ -554,27 +612,48 @@ def model_ensemble(*args):
     y_train = titanic_train_data_Y.values
     ##CreateourOOFtrainandtestpredictions.Thesebaseresultswillbeusedasnewfeatures
     rf_oof_train, rf_oof_test = get_out_fold(rf, x_train, y_train, x_test)  # RandomForest
+    print ('rf_oof_train finished')
     ada_oof_train, ada_oof_test = get_out_fold(ada, x_train, y_train, x_test)  # AdaBoost
+    print ('ada_oof_train finished')
     et_oof_train, et_oof_test = get_out_fold(et, x_train, y_train, x_test)  # ExtraTrees
+    print ('et_oof_train finished')
     gb_oof_train, gb_oof_test = get_out_fold(gb, x_train, y_train, x_test)  # GradientBoost
+    print ('gb_oof_train finished')
     dt_oof_train, dt_oof_test = get_out_fold(dt, x_train, y_train, x_test)  # DecisionTree
+    print ('dt_oof_train finished')
     knn_oof_train, knn_oof_test = get_out_fold(knn, x_train, y_train, x_test)  # KNeighbors
+    print ('knn_oof_train finished')
     svm_oof_train, svm_oof_test = get_out_fold(svm, x_train, y_train, x_test)  # SupportVector
+    print ('svm_oof_train finished')
     print("Training is complete")
 
+    # 预测并生成提交文件
+    # Level2：
     # 利用XGBoost，使用第一层预测的结果作为特征对最终的结果进行预测。
     x_train = np.concatenate((rf_oof_train, ada_oof_train, et_oof_train, gb_oof_train, dt_oof_train, knn_oof_train,
                               svm_oof_train), axis=1)
     x_test = np.concatenate((rf_oof_test, ada_oof_test, et_oof_test, gb_oof_test, dt_oof_test, knn_oof_test, \
                              svm_oof_test),axis=1)
+    print ('xgbt data dealing')
     gbm = XGBClassifier(n_estimators=2000, max_depth=4, min_child_weight=2, gamma=0.9, subsample=0.8,
-                        colsample_bytree=0.8, objective='binary:logistic', nthread=-1, scale_pos_weight=1).fit(x_train,                                                                                                             y_train)
+                        colsample_bytree=0.8, objective='binary:logistic', nthread=-1, scale_pos_weight=1).fit(x_train,y_train)
+    print ('xgbt_train finished')
     predictions = gbm.predict(x_test)
-    StackingSubmission = pd.DataFrame({'PassengerId': PassengerId, 'Survived': predictions})
+    #处理PassengerId问题
+    test_data_temp = combined_train_test_temp[891:]
+    titanic_test_data_X_temp = test_data_temp.drop(['Survived'], axis=1)
+    #####################################################################
+    StackingSubmission = pd.DataFrame({'PassengerId': titanic_test_data_X_temp['PassengerId'], 'Survived': predictions})
     StackingSubmission.to_csv('StackingSubmission.csv', index=False, sep=',')
 
-
+#L1:这里我们建立输出fold预测方法
 def get_out_fold(clf,x_train,y_train,x_test):
+    global ntrain, ntest, SEED, NFOLDS, kf
+    ntrain = titanic_train_data_X.shape[0]
+    ntest = titanic_test_data_X.shape[0]
+    SEED = 0  # forreproducibility
+    NFOLDS = 7  # setfoldsforout-of-foldprediction
+    kf = KFold(n_splits=NFOLDS, random_state=SEED, shuffle=False)
     oof_train=np.zeros((ntrain,))
     oof_test=np.zeros((ntest,))
     oof_test_skf=np.empty((NFOLDS,ntest))
@@ -651,11 +730,15 @@ if __name__ == '__main__':
     sns.set_style('whitegrid')
     #print (train_data.head())  #显示数据
     #print (test_data.info())   #显示数据维度信息
+
+
     #titanic_plot_pie(train_data)  #生成训练集饼图
     #Age、Cabin、Embarked、Fare特征缺失值填充
     train_data = missing_value_process(train_data)  #完成缺失值填充
     train_data = missing_value_rf(train_data)   #基于随机森林完成缺失值填充
     #print (train_data.info())
+
+    #数据Plot分析
     '''
     sex_survival_relation(train_data)   #性别与是否生存的关系
     pclass_survival_relation(train_data) #船舱等级和生存与否的关系
@@ -678,6 +761,7 @@ if __name__ == '__main__':
     age_scaling(train_data)
     fare_binning(train_data)
     '''
+    #数据预处理分析
     '''
     combined_train_test = factoring()
     combined_train_test = Pclass_labeling(combined_train_test)
@@ -690,12 +774,14 @@ if __name__ == '__main__':
     missing_age_train = missing_age_df[missing_age_df['Age'].notnull()]
     missing_age_test = missing_age_df[missing_age_df['Age'].isnull()]
     # print (missing_age_test.head())
-    combined_train_test.loc[(combined_train_test.Age.isnull()), 'Age'] = \
-                                                    fill_missing_age(missing_age_train,missing_age_test)
+    combined_train_test.loc[(combined_train_test.Age.isnull()), 'Age'] = fill_missing_age(missing_age_train,missing_age_test)
 
 
     combined_train_test.to_csv('combined_train_test.csv')
     '''
+
+    #模型构建
+
     combined_train_test = pd.read_csv('combined_train_test.csv')
     lst = combined_train_test.columns
     lst = lst[1:]
@@ -703,16 +789,24 @@ if __name__ == '__main__':
 
     combined_train_test = ticket_cabin_labeling(combined_train_test)
     #cor_plot(combined_train_test)
-    combined_train_test = age_fare_regularing(combined_train_test)
-    #缺失值实在弄不掉只能dropna()
-    combined_train_test = combined_train_test.dropna()
+
+    combined_train_test, combined_train_test_temp = age_fare_regularing(combined_train_test)
+    combined_train_test['Ticket_Number'].fillna(0, inplace=True)
+    #combined_train_test.to_csv('combined_train_test_2.csv')
+
+    #dropna()
+    #combined_train_test = combined_train_test.dropna()
     titanic_train_data_X, titanic_train_data_Y, titanic_test_data_X = train_test_apart(combined_train_test)
+
     fields = ['Age', 'Fare', 'Ticket_Number']
     titanic_train_data_X[fields] = titanic_train_data_X[fields].astype(float)
     titanic_test_data_X[fields] = titanic_test_data_X[fields].astype(float)
     modeling(titanic_train_data_X, titanic_train_data_Y, titanic_test_data_X)
-    #model_ensemble(titanic_train_data_X, titanic_test_data_X, titanic_train_data_Y)
-    #model_running(titanic_train_data_X, titanic_train_data_Y)
+    model_ensemble(titanic_train_data_X, titanic_test_data_X, titanic_train_data_Y)
+
+    #模型图
+    model_running(titanic_train_data_X, titanic_train_data_Y)
+
 
 
 
