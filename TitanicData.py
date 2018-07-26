@@ -679,7 +679,7 @@ if __name__ == '__main__':
     age_scaling(train_data)
     fare_binning(train_data)
     '''
-
+    '''
     combined_train_test = factoring()
     combined_train_test = Pclass_labeling(combined_train_test)
     # Age字段，因为Age项的缺失值较多，所以不能直接填充age的众数或者平均数。
@@ -696,7 +696,7 @@ if __name__ == '__main__':
 
 
     combined_train_test.to_csv('combined_train_test.csv')
-
+    '''
     combined_train_test = pd.read_csv('combined_train_test.csv')
     lst = combined_train_test.columns
     lst = lst[1:]
