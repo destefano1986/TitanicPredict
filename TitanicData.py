@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import warnings
 import re
 import numpy as np
 import pandas as pd
