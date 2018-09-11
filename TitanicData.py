@@ -781,7 +781,7 @@ if __name__ == '__main__':
     '''
 
     #模型构建
-
+    '''
     combined_train_test = pd.read_csv('combined_train_test.csv')
     lst = combined_train_test.columns
     lst = lst[1:]
@@ -806,6 +806,7 @@ if __name__ == '__main__':
 
     #模型图
     model_running(titanic_train_data_X, titanic_train_data_Y)
+    '''
 
 
 
